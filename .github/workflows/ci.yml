@@ -19,12 +19,8 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz
-            llvm_dir: clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04
           - os: macos-latest
           - os: windows-latest
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
-            llvm_dir: clang+llvm-18.1.8-x86_64-pc-windows-msvc
 
     steps:
       - uses: actions/checkout@v4
@@ -32,39 +28,28 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache LLVM (Linux/Windows)
-        if: runner.os != 'macOS'
-        id: cache-llvm
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/llvm
-          key: llvm-18.1.8-${{ matrix.os }}
-
-      - name: Download LLVM (Linux)
-        if: runner.os == 'Linux' && steps.cache-llvm.outputs.cache-hit != 'true'
+      # Linux: Use apt to install LLVM
+      - name: Install LLVM (Linux)
+        if: runner.os == 'Linux'
         run: |
-          curl -L "${{ matrix.llvm_url }}" | tar xJ
-          mv "${{ matrix.llvm_dir }}" llvm
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
+      # macOS: Use Homebrew
       - name: Install LLVM (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install llvm@18
+          brew install llvm@18 zstd
           echo "LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)" >> $GITHUB_ENV
 
-      - name: Download LLVM (Windows)
-        if: runner.os == 'Windows' && steps.cache-llvm.outputs.cache-hit != 'true'
-        shell: pwsh
+      # Windows: Use choco
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
         run: |
-          Invoke-WebRequest -Uri "${{ matrix.llvm_url }}" -OutFile llvm.tar.xz
-          7z x llvm.tar.xz
-          7z x llvm.tar
-          Rename-Item "${{ matrix.llvm_dir }}" llvm
-
-      - name: Set LLVM path (Linux/Windows)
-        if: runner.os != 'macOS'
-        run: echo "LLVM_SYS_180_PREFIX=${{ github.workspace }}/llvm" >> $GITHUB_ENV
-        shell: bash
+          choco install llvm --version=18.1.8 -y
+          echo "LLVM_SYS_180_PREFIX=C:\Program Files\LLVM" >> $env:GITHUB_ENV
 
       - name: Build
         run: cargo build --release
@@ -82,16 +67,12 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz
-            llvm_dir: clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04
             artifact: jovialc
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: jovialc
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
-            llvm_dir: clang+llvm-18.1.8-x86_64-pc-windows-msvc
             artifact: jovialc.exe
 
     steps:
@@ -100,39 +81,25 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache LLVM (Linux/Windows)
-        if: runner.os != 'macOS'
-        id: cache-llvm
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/llvm
-          key: llvm-18.1.8-${{ matrix.os }}
-
-      - name: Download LLVM (Linux)
-        if: runner.os == 'Linux' && steps.cache-llvm.outputs.cache-hit != 'true'
+      - name: Install LLVM (Linux)
+        if: runner.os == 'Linux'
         run: |
-          curl -L "${{ matrix.llvm_url }}" | tar xJ
-          mv "${{ matrix.llvm_dir }}" llvm
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 18
+          echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
       - name: Install LLVM (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install llvm@18
+          brew install llvm@18 zstd
           echo "LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)" >> $GITHUB_ENV
 
-      - name: Download LLVM (Windows)
-        if: runner.os == 'Windows' && steps.cache-llvm.outputs.cache-hit != 'true'
-        shell: pwsh
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
         run: |
-          Invoke-WebRequest -Uri "${{ matrix.llvm_url }}" -OutFile llvm.tar.xz
-          7z x llvm.tar.xz
-          7z x llvm.tar
-          Rename-Item "${{ matrix.llvm_dir }}" llvm
-
-      - name: Set LLVM path (Linux/Windows)
-        if: runner.os != 'macOS'
-        run: echo "LLVM_SYS_180_PREFIX=${{ github.workspace }}/llvm" >> $GITHUB_ENV
-        shell: bash
+          choco install llvm --version=18.1.8 -y
+          echo "LLVM_SYS_180_PREFIX=C:\Program Files\LLVM" >> $env:GITHUB_ENV
 
       - name: Build Release
         run: cargo build --release
