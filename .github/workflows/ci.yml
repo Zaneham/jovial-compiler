@@ -51,15 +51,16 @@ jobs:
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
         uses: KyleMayes/install-llvm-action@v2
+        id: install-llvm-windows
         with:
           version: "18.1"
-          directory: "C:\\LLVM18"
 
       - name: Set LLVM path (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          echo "LLVM_SYS_180_PREFIX=C:\LLVM18" >> $env:GITHUB_ENV
+          echo "LLVM_SYS_180_PREFIX=${{ steps.install-llvm-windows.outputs.directory }}" >> $env:GITHUB_ENV
+          echo "Installed LLVM to: ${{ steps.install-llvm-windows.outputs.directory }}"
 
       - name: Build
         run: cargo build --release
@@ -111,15 +112,15 @@ jobs:
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
         uses: KyleMayes/install-llvm-action@v2
+        id: install-llvm-windows-release
         with:
           version: "18.1"
-          directory: "C:\\LLVM18"
 
       - name: Set LLVM path (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          echo "LLVM_SYS_180_PREFIX=C:\LLVM18" >> $env:GITHUB_ENV
+          echo "LLVM_SYS_180_PREFIX=${{ steps.install-llvm-windows-release.outputs.directory }}" >> $env:GITHUB_ENV
 
       - name: Build Release
         run: cargo build --release
