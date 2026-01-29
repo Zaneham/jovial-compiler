@@ -20,7 +20,8 @@ jobs:
         include:
           - os: ubuntu-latest
           - os: macos-latest
-          - os: windows-latest
+          # Windows skipped: LLVM Windows installer doesn't include static libs needed for llvm-sys
+          # - os: windows-latest
 
     steps:
       - uses: actions/checkout@v4
@@ -47,15 +48,6 @@ jobs:
           echo "LIBRARY_PATH=$LLVM_PREFIX/lib:$(brew --prefix zstd)/lib:$(brew --prefix libffi)/lib" >> $GITHUB_ENV
           echo "LDFLAGS=-L$LLVM_PREFIX/lib -L$(brew --prefix zstd)/lib -L$(brew --prefix libffi)/lib" >> $GITHUB_ENV
 
-      # Windows: Download and run official LLVM installer
-      - name: Install LLVM (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          curl -L -o llvm.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe
-          llvm.exe /S /D=C:\LLVM
-          echo LLVM_SYS_180_PREFIX=C:\LLVM>> %GITHUB_ENV%
-
       - name: Build
         run: cargo build --release
 
@@ -76,9 +68,10 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: jovialc
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: jovialc.exe
+          # Windows skipped: LLVM Windows installer doesn't include static libs
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          #   artifact: jovialc.exe
 
     steps:
       - uses: actions/checkout@v4
@@ -103,46 +96,19 @@ jobs:
           echo "LIBRARY_PATH=$LLVM_PREFIX/lib:$(brew --prefix zstd)/lib:$(brew --prefix libffi)/lib" >> $GITHUB_ENV
           echo "LDFLAGS=-L$LLVM_PREFIX/lib -L$(brew --prefix zstd)/lib -L$(brew --prefix libffi)/lib" >> $GITHUB_ENV
 
-      - name: Install LLVM (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          curl -L -o llvm.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe
-          llvm.exe /S /D=C:\LLVM
-          echo LLVM_SYS_180_PREFIX=C:\LLVM>> %GITHUB_ENV%
-
       - name: Build Release
         run: cargo build --release
 
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      - name: Package
         run: |
           mkdir -p dist
           cp target/release/jovialc dist/
           cp README.md dist/
           cd dist && tar -czvf ../jovialc-${{ matrix.target }}.tar.gz *
 
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist
-          Copy-Item target/release/jovialc.exe dist/
-          Copy-Item README.md dist/
-          Compress-Archive -Path dist/* -DestinationPath jovialc-${{ matrix.target }}.zip
-
-      - name: Upload Release Asset (Unix)
-        if: runner.os != 'Windows'
+      - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
           files: jovialc-${{ matrix.target }}.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Release Asset (Windows)
-        if: runner.os == 'Windows'
-        uses: softprops/action-gh-release@v1
-        with:
-          files: jovialc-${{ matrix.target }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
