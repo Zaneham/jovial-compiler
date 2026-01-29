@@ -197,7 +197,7 @@ Because syntax highlighting is a human right, even for languages the Geneva Conv
 
 ### The Emulator Menagerie
 
-When compilers aren't enough and you need to simulate entire extinct computers:
+When compilers aren't enough and you need to simulate entire extinct and new computers:
 
 | Project | What It Emulates | Level of Concerning |
 |---------|-----------------|---------------------|
