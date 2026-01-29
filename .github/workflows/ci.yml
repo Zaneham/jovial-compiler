@@ -47,19 +47,18 @@ jobs:
           echo "LIBRARY_PATH=$LLVM_PREFIX/lib:$(brew --prefix zstd)/lib:$(brew --prefix libffi)/lib" >> $GITHUB_ENV
           echo "LDFLAGS=-L$LLVM_PREFIX/lib -L$(brew --prefix zstd)/lib -L$(brew --prefix libffi)/lib" >> $GITHUB_ENV
 
-      # Windows: Download and extract LLVM 18 (pre-installed is v20, we need v18 for llvm-sys 180)
+      # Windows: Use install-llvm-action for reliable LLVM installation
       - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18.1"
+          directory: "C:\\LLVM18"
+
+      - name: Set LLVM path (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          # Download LLVM 18
-          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe" -OutFile llvm-installer.exe
-          # Extract using 7z (the exe is a self-extracting archive)
-          7z x llvm-installer.exe -oC:\LLVM18 -y
-          # Verify installation
-          Write-Host "LLVM directory contents:"
-          Get-ChildItem C:\LLVM18 -ErrorAction SilentlyContinue | Select-Object -First 10
-          Get-ChildItem C:\LLVM18\bin -ErrorAction SilentlyContinue | Select-Object -First 5
           echo "LLVM_SYS_180_PREFIX=C:\LLVM18" >> $env:GITHUB_ENV
 
       - name: Build
@@ -111,10 +110,15 @@ jobs:
 
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "18.1"
+          directory: "C:\\LLVM18"
+
+      - name: Set LLVM path (Windows)
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe" -OutFile llvm-installer.exe
-          7z x llvm-installer.exe -oC:\LLVM18 -y
           echo "LLVM_SYS_180_PREFIX=C:\LLVM18" >> $env:GITHUB_ENV
 
       - name: Build Release
