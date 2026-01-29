@@ -1,9 +1,5 @@
 # JOVIAL J73 Compiler
 
-> *"Why did you make this?"*
->
-> *"I was bored on a Tuesday."*
-
 A fully functional native compiler for JOVIAL J73 (MIL-STD-1589C), a programming language from 1959 designed for bombing things more accurately. Now you too can experience the joy of military avionics software development from your gaming PC.
 
 ## What is JOVIAL?
