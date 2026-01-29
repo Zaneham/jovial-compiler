@@ -241,6 +241,7 @@ Basically: do whatever you want, just don't compete with me selling JOVIAL compi
 - The US Department of Defense, for creating this beautiful mess
 - LLVM, for making this possible without hand-writing x86 assembly
 - Rust, for making me feel safe while doing deeply unsafe things
+- The youtuber Low Level for his course on Rust which helped me learn the language a bit. You can check out his youtube here: https://www.youtube.com/@LowLevelTV
 - You, for reading this far. You're my kind of weird.
 
 ---
