@@ -47,20 +47,14 @@ jobs:
           echo "LIBRARY_PATH=$LLVM_PREFIX/lib:$(brew --prefix zstd)/lib:$(brew --prefix libffi)/lib" >> $GITHUB_ENV
           echo "LDFLAGS=-L$LLVM_PREFIX/lib -L$(brew --prefix zstd)/lib -L$(brew --prefix libffi)/lib" >> $GITHUB_ENV
 
-      # Windows: Use install-llvm-action for reliable LLVM installation
+      # Windows: Download and run official LLVM installer
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
-        uses: KyleMayes/install-llvm-action@v2
-        id: install-llvm-windows
-        with:
-          version: "18.1"
-
-      - name: Set LLVM path (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+        shell: cmd
         run: |
-          echo "LLVM_SYS_180_PREFIX=${{ steps.install-llvm-windows.outputs.directory }}" >> $env:GITHUB_ENV
-          echo "Installed LLVM to: ${{ steps.install-llvm-windows.outputs.directory }}"
+          curl -L -o llvm.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe
+          llvm.exe /S /D=C:\LLVM
+          echo LLVM_SYS_180_PREFIX=C:\LLVM>> %GITHUB_ENV%
 
       - name: Build
         run: cargo build --release
@@ -111,16 +105,11 @@ jobs:
 
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
-        uses: KyleMayes/install-llvm-action@v2
-        id: install-llvm-windows-release
-        with:
-          version: "18.1"
-
-      - name: Set LLVM path (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+        shell: cmd
         run: |
-          echo "LLVM_SYS_180_PREFIX=${{ steps.install-llvm-windows-release.outputs.directory }}" >> $env:GITHUB_ENV
+          curl -L -o llvm.exe https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe
+          llvm.exe /S /D=C:\LLVM
+          echo LLVM_SYS_180_PREFIX=C:\LLVM>> %GITHUB_ENV%
 
       - name: Build Release
         run: cargo build --release
