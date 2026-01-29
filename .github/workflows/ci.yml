@@ -22,8 +22,6 @@ jobs:
             llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz
             llvm_dir: clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04
           - os: macos-latest
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-arm64-apple-darwin.tar.xz
-            llvm_dir: clang+llvm-18.1.8-arm64-apple-darwin
           - os: windows-latest
             llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-pc-windows-msvc.tar.xz
             llvm_dir: clang+llvm-18.1.8-x86_64-pc-windows-msvc
@@ -34,21 +32,28 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache LLVM
+      - name: Cache LLVM (Linux/Windows)
+        if: runner.os != 'macOS'
         id: cache-llvm
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/llvm
           key: llvm-18.1.8-${{ matrix.os }}
 
-      - name: Download LLVM (Unix)
-        if: steps.cache-llvm.outputs.cache-hit != 'true' && runner.os != 'Windows'
+      - name: Download LLVM (Linux)
+        if: runner.os == 'Linux' && steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
           curl -L "${{ matrix.llvm_url }}" | tar xJ
           mv "${{ matrix.llvm_dir }}" llvm
 
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm@18
+          echo "LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)" >> $GITHUB_ENV
+
       - name: Download LLVM (Windows)
-        if: steps.cache-llvm.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.cache-llvm.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "${{ matrix.llvm_url }}" -OutFile llvm.tar.xz
@@ -56,14 +61,15 @@ jobs:
           7z x llvm.tar
           Rename-Item "${{ matrix.llvm_dir }}" llvm
 
+      - name: Set LLVM path (Linux/Windows)
+        if: runner.os != 'macOS'
+        run: echo "LLVM_SYS_180_PREFIX=${{ github.workspace }}/llvm" >> $GITHUB_ENV
+        shell: bash
+
       - name: Build
-        env:
-          LLVM_SYS_180_PREFIX: ${{ github.workspace }}/llvm
         run: cargo build --release
 
       - name: Run tests
-        env:
-          LLVM_SYS_180_PREFIX: ${{ github.workspace }}/llvm
         run: cargo test
 
   release:
@@ -81,8 +87,6 @@ jobs:
             artifact: jovialc
           - os: macos-latest
             target: aarch64-apple-darwin
-            llvm_url: https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-arm64-apple-darwin.tar.xz
-            llvm_dir: clang+llvm-18.1.8-arm64-apple-darwin
             artifact: jovialc
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -96,21 +100,28 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache LLVM
+      - name: Cache LLVM (Linux/Windows)
+        if: runner.os != 'macOS'
         id: cache-llvm
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/llvm
           key: llvm-18.1.8-${{ matrix.os }}
 
-      - name: Download LLVM (Unix)
-        if: steps.cache-llvm.outputs.cache-hit != 'true' && runner.os != 'Windows'
+      - name: Download LLVM (Linux)
+        if: runner.os == 'Linux' && steps.cache-llvm.outputs.cache-hit != 'true'
         run: |
           curl -L "${{ matrix.llvm_url }}" | tar xJ
           mv "${{ matrix.llvm_dir }}" llvm
 
+      - name: Install LLVM (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm@18
+          echo "LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)" >> $GITHUB_ENV
+
       - name: Download LLVM (Windows)
-        if: steps.cache-llvm.outputs.cache-hit != 'true' && runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.cache-llvm.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           Invoke-WebRequest -Uri "${{ matrix.llvm_url }}" -OutFile llvm.tar.xz
@@ -118,9 +129,12 @@ jobs:
           7z x llvm.tar
           Rename-Item "${{ matrix.llvm_dir }}" llvm
 
+      - name: Set LLVM path (Linux/Windows)
+        if: runner.os != 'macOS'
+        run: echo "LLVM_SYS_180_PREFIX=${{ github.workspace }}/llvm" >> $GITHUB_ENV
+        shell: bash
+
       - name: Build Release
-        env:
-          LLVM_SYS_180_PREFIX: ${{ github.workspace }}/llvm
         run: cargo build --release
 
       - name: Package (Unix)
