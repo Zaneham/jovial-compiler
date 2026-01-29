@@ -216,9 +216,19 @@ When compilers aren't enough and you need to simulate entire extinct and new com
 
 *If you're seeing a pattern here, congratulations. You've identified a problem.*
 
-## Contributing
+## Contact
 
-Found a bug? Want to add a feature? Know where we can get actual F-16 source code? Open an issue.
+Found a bug? Want to discuss the finer points of MIL-STD-1589C? Simply need to tell another human being that you write
+JOVIAL and have them not immediately change the subject?
+
+**zanehambly@gmail.com**
+
+I can't promise I'll fix your problem, but I can promise I'll be unreasonably interested in it. If you're maintaining
+legacy avionics code and need moral support, I'm your man. If you're from the Pentagon and this compiler somehow ended
+up in something important, I would like to state for the record that I included a test suite.
+
+Based in New Zealand, where it's already tomorrow and the sheep outnumber the JOVIAL programmers roughly eight million
+to one.
 
 ## License
 
