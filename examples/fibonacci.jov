@@ -1,0 +1,23 @@
+START FIBONACCI;
+
+" Compute Fibonacci numbers in JOVIAL J73 "
+
+ITEM N S 32 = 10;
+ITEM A S 32 = 0;
+ITEM B S 32 = 1;
+ITEM TEMP S 32 = 0;
+ITEM I S 32 = 0;
+
+PRINT('Fibonacci sequence:');
+
+WHILE I < N;
+    PRINT(A);
+    TEMP := A + B;
+    A := B;
+    B := TEMP;
+    I := I + 1;
+END
+
+PRINT('Done!');
+
+TERM

@@ -1,0 +1,12 @@
+START COMPUTE;
+
+" Compute 5 + 3 * 4 = 17 "
+
+ITEM A S 32 = 5;
+ITEM B S 32 = 3;
+ITEM C S 32 = 4;
+ITEM RESULT S 32 = 0;
+
+RESULT := A + B * C;
+
+TERM

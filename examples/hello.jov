@@ -1,0 +1,8 @@
+START HELLO;
+
+ITEM X S 32 = 42;
+ITEM Y S 32 = 0;
+
+Y := X + 10;
+
+TERM

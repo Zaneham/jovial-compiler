@@ -1,0 +1,41 @@
+[package]
+name = "jovial"
+version = "0.1.0"
+edition = "2021"
+authors = ["Zane Hambly <zanehambly@gmail.com>"]
+description = "A JOVIAL J73 compiler targeting LLVM"
+license = "BSL-1.0"
+repository = "https://github.com/Zaneham/jovial"
+keywords = ["compiler", "jovial", "llvm", "aviation", "retro"]
+categories = ["compilers", "development-tools"]
+
+[dependencies]
+# Lexer
+logos = "0.14"
+
+# Parser combinators (or we can hand-roll)
+# chumsky = "0.9"
+
+# LLVM bindings
+inkwell = { version = "0.5", features = ["llvm18-0"] }
+
+# Error reporting
+ariadne = "0.4"
+thiserror = "2"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Utilities
+indexmap = "2"
+
+[dev-dependencies]
+insta = "1"  # Snapshot testing
+
+[[bin]]
+name = "jovialc"
+path = "src/main.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1

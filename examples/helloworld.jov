@@ -1,0 +1,14 @@
+START HELLOWORLD;
+
+" Classic Hello World in JOVIAL J73 "
+
+ITEM X S 32 = 42;
+ITEM Y S 32 = 0;
+
+Y := X + 10;
+
+PRINT('Hello from JOVIAL!');
+PRINT(X);
+PRINT(Y);
+
+TERM

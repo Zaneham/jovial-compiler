@@ -1,0 +1,26 @@
+START FACTORIAL2;
+
+" Compute factorials - simpler version "
+
+ITEM N S 32 = 0;
+ITEM RESULT S 32 = 1;
+ITEM I S 32 = 0;
+
+PRINT('Factorials 1-10:');
+
+N := 1;
+WHILE N <= 10;
+    " Compute N! inline "
+    RESULT := 1;
+    I := 1;
+    WHILE I <= N;
+        RESULT := RESULT * I;
+        I := I + 1;
+    END
+
+    PRINT(N);
+    PRINT(RESULT);
+    N := N + 1;
+END
+
+TERM

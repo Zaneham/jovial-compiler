@@ -1,0 +1,23 @@
+START INTERACTIVE;
+
+" Interactive JOVIAL program - reads input and computes "
+
+ITEM X S 32 = 0;
+ITEM Y S 32 = 0;
+ITEM SUM S 32 = 0;
+
+PRINT('Enter first number:');
+READ(X);
+
+PRINT('Enter second number:');
+READ(Y);
+
+SUM := X + Y;
+
+PRINT('The sum is:');
+PRINT(SUM);
+
+PRINT('The product is:');
+PRINT(X * Y);
+
+TERM

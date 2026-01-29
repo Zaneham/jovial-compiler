@@ -1,0 +1,5 @@
+START SIMPLE;
+
+ITEM X S 16 = 0;
+
+TERM

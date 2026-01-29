@@ -1,0 +1,32 @@
+START FACTORIAL;
+
+" Compute factorials using a procedure "
+
+ITEM N S 32 = 0;
+ITEM RESULT S 32 = 0;
+
+PROC FACT(X : R);
+BEGIN
+    ITEM X S 32;
+    ITEM R S 32;
+    ITEM I S 32;
+
+    R := 1;
+    I := 1;
+
+    WHILE I <= X;
+        R := R * I;
+        I := I + 1;
+    END
+END
+
+PRINT('Factorials:');
+
+N := 1;
+WHILE N <= 10;
+    FACT(N : RESULT);
+    PRINT(RESULT);
+    N := N + 1;
+END
+
+TERM

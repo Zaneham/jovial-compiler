@@ -1,0 +1,15 @@
+START EXITCODE;
+
+" This should return exit code 17: 5 + 3 * 4 "
+
+ITEM A S 32 = 5;
+ITEM B S 32 = 3;
+ITEM C S 32 = 4;
+
+PROC COMPUTE : RESULT;
+BEGIN
+    ITEM RESULT S 32;
+    RESULT := A + B * C;
+END
+
+TERM

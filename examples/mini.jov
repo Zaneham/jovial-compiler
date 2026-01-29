@@ -1,0 +1,15 @@
+" Test comment "
+START TEST;
+
+DEFINE MAX = 100;
+
+TYPE COORD F 32;
+
+ITEM X S 16 = 0;
+
+ITEM MODE STATUS (
+    V(GROUND),
+    V(TAKEOFF)
+);
+
+TERM

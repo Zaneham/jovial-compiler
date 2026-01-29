@@ -1,0 +1,200 @@
+" JOVIAL J73 Example: Flight Control System "
+" Based on MIL-STD-1589C syntax "
+" This code pattern is representative of F-15/F-16 avionics software "
+
+START FLIGHT'CONTROL;
+
+" ============================================== "
+" COMPILE-TIME CONSTANTS "
+" ============================================== "
+
+DEFINE MAX'WAYPOINTS = 100;
+DEFINE MAX'ALTITUDE = 50000;
+DEFINE MIN'AIRSPEED = 150;
+DEFINE GRAVITY = 32.174;
+
+" ============================================== "
+" TYPE DECLARATIONS "
+" ============================================== "
+
+TYPE COORD'TYPE F 32;
+TYPE ALTITUDE'TYPE S 16;
+TYPE SPEED'TYPE F 32;
+TYPE HEADING'TYPE U 9;
+
+" ============================================== "
+" STATUS (ENUMERATION) TYPES "
+" ============================================== "
+
+ITEM FLIGHT'MODE STATUS (
+    V(GROUND),
+    V(TAKEOFF),
+    V(CRUISE),
+    V(COMBAT),
+    V(LANDING),
+    V(EMERGENCY)
+);
+
+ITEM SYSTEM'STATUS STATUS (
+    V(NOMINAL),
+    V(CAUTION),
+    V(WARNING),
+    V(FAILURE)
+);
+
+" ============================================== "
+" NAVIGATION DATA "
+" ============================================== "
+
+ITEM CURRENT'LAT STATIC COORD'TYPE;
+ITEM CURRENT'LON STATIC COORD'TYPE;
+ITEM CURRENT'ALT STATIC ALTITUDE'TYPE;
+ITEM CURRENT'HEADING STATIC HEADING'TYPE;
+ITEM CURRENT'AIRSPEED STATIC SPEED'TYPE;
+
+ITEM TARGET'LAT COORD'TYPE;
+ITEM TARGET'LON COORD'TYPE;
+ITEM TARGET'ALT ALTITUDE'TYPE;
+
+" ============================================== "
+" WAYPOINT TABLE "
+" ============================================== "
+
+TABLE WAYPOINTS (1: MAX'WAYPOINTS);
+BEGIN
+    ITEM LAT COORD'TYPE;
+    ITEM LON COORD'TYPE;
+    ITEM ALT ALTITUDE'TYPE;
+    ITEM SPEED SPEED'TYPE;
+    ITEM ACTIVE B 1;
+END
+
+ITEM CURRENT'WAYPOINT U 8 = 1;
+ITEM TOTAL'WAYPOINTS U 8 = 0;
+
+" ============================================== "
+" SENSOR DATA TABLE "
+" ============================================== "
+
+TABLE SENSORS (1: 8) PARALLEL;
+BEGIN
+    ITEM READING F 32;
+    ITEM VALID B 1;
+    ITEM TIMESTAMP U 32;
+END
+
+" ============================================== "
+" PROCEDURES "
+" ============================================== "
+
+PROC CALCULATE'DISTANCE (LAT1, LON1, LAT2, LON2 : DISTANCE);
+BEGIN
+    ITEM LAT1 COORD'TYPE;
+    ITEM LON1 COORD'TYPE;
+    ITEM LAT2 COORD'TYPE;
+    ITEM LON2 COORD'TYPE;
+    ITEM DISTANCE SPEED'TYPE;
+
+    ITEM DLAT COORD'TYPE;
+    ITEM DLON COORD'TYPE;
+
+    " Simplified distance calculation "
+    DLAT := LAT2 - LAT1;
+    DLON := LON2 - LON1;
+    DISTANCE := SQRT(DLAT ** 2 + DLON ** 2);
+END
+
+PROC UPDATE'NAVIGATION;
+BEGIN
+    ITEM DIST'TO'WAYPOINT F 32;
+    ITEM WAYPOINT'THRESHOLD F 32 = 0.5;
+
+    " Check distance to current waypoint "
+    CALCULATE'DISTANCE(
+        CURRENT'LAT, CURRENT'LON,
+        WAYPOINTS(CURRENT'WAYPOINT).LAT,
+        WAYPOINTS(CURRENT'WAYPOINT).LON
+        : DIST'TO'WAYPOINT
+    );
+
+    " Advance to next waypoint if close enough "
+    IF DIST'TO'WAYPOINT < WAYPOINT'THRESHOLD;
+        IF CURRENT'WAYPOINT < TOTAL'WAYPOINTS;
+            CURRENT'WAYPOINT := CURRENT'WAYPOINT + 1;
+        END
+    END
+END
+
+PROC CHECK'ALTITUDE'LIMITS;
+BEGIN
+    IF CURRENT'ALT > MAX'ALTITUDE;
+        SYSTEM'STATUS := V(WARNING);
+    END
+
+    IF CURRENT'ALT < 0;
+        SYSTEM'STATUS := V(FAILURE);
+        FLIGHT'MODE := V(EMERGENCY);
+    END
+END
+
+PROC CHECK'AIRSPEED'LIMITS;
+BEGIN
+    IF CURRENT'AIRSPEED < MIN'AIRSPEED;
+        IF FLIGHT'MODE <> V(GROUND);
+            SYSTEM'STATUS := V(CAUTION);
+        END
+    END
+END
+
+PROC MAIN'LOOP;
+BEGIN
+    " Main flight control loop "
+
+    " Update navigation "
+    UPDATE'NAVIGATION;
+
+    " Check system limits "
+    CHECK'ALTITUDE'LIMITS;
+    CHECK'AIRSPEED'LIMITS;
+
+    " Mode-specific processing "
+    CASE FLIGHT'MODE;
+        BEGIN
+        V(GROUND):
+            " Ground operations "
+            ;
+        V(TAKEOFF):
+            " Takeoff sequence "
+            IF CURRENT'AIRSPEED > MIN'AIRSPEED;
+                IF CURRENT'ALT > 100;
+                    FLIGHT'MODE := V(CRUISE);
+                END
+            END
+        V(CRUISE):
+            " Normal flight "
+            ;
+        V(COMBAT):
+            " Combat maneuvering "
+            ;
+        V(LANDING):
+            " Landing approach "
+            ;
+        V(EMERGENCY):
+            " Emergency procedures "
+            ;
+        END
+END
+
+" ============================================== "
+" PROGRAM ENTRY "
+" ============================================== "
+
+" Initialize system "
+FLIGHT'MODE := V(GROUND);
+SYSTEM'STATUS := V(NOMINAL);
+CURRENT'WAYPOINT := 1;
+
+" Start main loop "
+MAIN'LOOP;
+
+TERM
