@@ -28,28 +28,33 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # Linux: Use apt to install LLVM
+      # Linux: Install full LLVM 18 dev packages
       - name: Install LLVM (Linux)
         if: runner.os == 'Linux'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 18
+          sudo ./llvm.sh 18 all
           echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
-      # macOS: Use Homebrew
+      # macOS: Use Homebrew with proper library paths
       - name: Install LLVM (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install llvm@18 zstd
-          echo "LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)" >> $GITHUB_ENV
+          brew install llvm@18 zstd libffi
+          LLVM_PREFIX=$(brew --prefix llvm@18)
+          echo "LLVM_SYS_180_PREFIX=$LLVM_PREFIX" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$LLVM_PREFIX/lib:$(brew --prefix zstd)/lib:$(brew --prefix libffi)/lib" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$LLVM_PREFIX/lib -L$(brew --prefix zstd)/lib -L$(brew --prefix libffi)/lib" >> $GITHUB_ENV
 
-      # Windows: Use choco
+      # Windows: Download LLVM 18 (pre-installed is v20, we need v18 for llvm-sys 180)
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          choco install llvm --version=18.1.8 -y
-          echo "LLVM_SYS_180_PREFIX=C:\Program Files\LLVM" >> $env:GITHUB_ENV
+          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe" -OutFile llvm-installer.exe
+          Start-Process -Wait -FilePath .\llvm-installer.exe -ArgumentList "/S","/D=C:\LLVM18"
+          echo "LLVM_SYS_180_PREFIX=C:\LLVM18" >> $env:GITHUB_ENV
 
       - name: Build
         run: cargo build --release
@@ -86,20 +91,25 @@ jobs:
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 18
+          sudo ./llvm.sh 18 all
           echo "LLVM_SYS_180_PREFIX=/usr/lib/llvm-18" >> $GITHUB_ENV
 
       - name: Install LLVM (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install llvm@18 zstd
-          echo "LLVM_SYS_180_PREFIX=$(brew --prefix llvm@18)" >> $GITHUB_ENV
+          brew install llvm@18 zstd libffi
+          LLVM_PREFIX=$(brew --prefix llvm@18)
+          echo "LLVM_SYS_180_PREFIX=$LLVM_PREFIX" >> $GITHUB_ENV
+          echo "LIBRARY_PATH=$LLVM_PREFIX/lib:$(brew --prefix zstd)/lib:$(brew --prefix libffi)/lib" >> $GITHUB_ENV
+          echo "LDFLAGS=-L$LLVM_PREFIX/lib -L$(brew --prefix zstd)/lib -L$(brew --prefix libffi)/lib" >> $GITHUB_ENV
 
       - name: Install LLVM (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          choco install llvm --version=18.1.8 -y
-          echo "LLVM_SYS_180_PREFIX=C:\Program Files\LLVM" >> $env:GITHUB_ENV
+          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/LLVM-18.1.8-win64.exe" -OutFile llvm-installer.exe
+          Start-Process -Wait -FilePath .\llvm-installer.exe -ArgumentList "/S","/D=C:\LLVM18"
+          echo "LLVM_SYS_180_PREFIX=C:\LLVM18" >> $env:GITHUB_ENV
 
       - name: Build Release
         run: cargo build --release
