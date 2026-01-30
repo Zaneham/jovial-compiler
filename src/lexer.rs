@@ -175,7 +175,7 @@ pub enum Keyword {
     Coml, Copy, Delete, NoPack, NoRef, Pack, Seq, SRef, WRef,
 
     // Single letter type indicators
-    S, U, F, B, C, H, A,
+    S, U, F, B, C, H, A, D,
 }
 
 impl Keyword {
@@ -295,6 +295,7 @@ impl Keyword {
             "C" => Some(Self::C),
             "H" => Some(Self::H),
             "A" => Some(Self::A),
+            "D" => Some(Self::D),
 
             _ => None,
         }
@@ -327,7 +328,7 @@ pub const KEYWORDS: &[&str] = &[
     // Compiler directives
     "COML", "COPY", "DELETE", "NOPACK", "NOREF", "PACK", "SEQ", "SREF", "WREF",
     // Single letter type indicators
-    "S", "U", "F", "B", "C", "H", "A",
+    "S", "U", "F", "B", "C", "H", "A", "D",
 ];
 
 /// Spanned token for error reporting

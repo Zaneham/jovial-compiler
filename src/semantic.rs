@@ -126,11 +126,26 @@ impl Analyser {
                     span: *span,
                 })?;
             }
-            Declaration::Item { name, type_spec, is_constant, span, .. } => {
+            Declaration::Item { name, type_spec, is_constant, like_source, span, .. } => {
+                // Resolve LIKE reference if present
+                let resolved_type = if let Some(source_name) = like_source {
+                    // Look up the source item's type
+                    if let Some(source_symbol) = self.symbols.lookup(source_name) {
+                        source_symbol.type_spec.clone()
+                    } else {
+                        return Err(CompileError::semantic(
+                            *span,
+                            format!("LIKE reference '{}' not found", source_name),
+                        ));
+                    }
+                } else {
+                    type_spec.clone()
+                };
+
                 self.symbols.define(Symbol {
                     name: name.clone(),
                     kind: if *is_constant { SymbolKind::Constant } else { SymbolKind::Variable },
-                    type_spec: type_spec.clone(),
+                    type_spec: resolved_type,
                     span: *span,
                 })?;
             }

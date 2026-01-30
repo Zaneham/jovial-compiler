@@ -233,6 +233,9 @@ impl Parser {
         let mut is_static = false;
         let mut is_constant = false;
         let mut is_parallel = false;
+        let mut like_source = None;
+        let mut overlay_target = None;
+        let mut pos_target = None;
 
         while self.check_keyword(Keyword::Static)
             || self.check_keyword(Keyword::Constant)
@@ -250,7 +253,42 @@ impl Parser {
             }
         }
 
-        let type_spec = self.parse_type_spec()?;
+        // Check for OVERLAY modifier - shares memory with target
+        if self.check_keyword(Keyword::Overlay) {
+            self.advance();
+            let target_name = self.expect_identifier()?;
+            overlay_target = Some(target_name);
+        }
+
+        // Check for POS modifier - positioned at bit offset into target
+        if self.check_keyword(Keyword::Pos) {
+            self.advance();
+            self.expect(Token::LParen)?;
+            let target_name = self.expect_identifier()?;
+            self.expect(Token::Comma)?;
+            let offset = if let Some(Token::Integer(n)) = self.current_token().cloned() {
+                self.advance();
+                n as u32
+            } else {
+                return Err(CompileError::parse(
+                    self.current_span(),
+                    "Expected bit offset integer",
+                ));
+            };
+            self.expect(Token::RParen)?;
+            pos_target = Some((target_name, offset));
+        }
+
+        // Check for LIKE modifier - copies type from another item
+        let type_spec = if self.check_keyword(Keyword::Like) {
+            self.advance();
+            let source_name = self.expect_identifier()?;
+            like_source = Some(source_name.clone());
+            // Create a type reference that will be resolved later
+            TypeSpec::type_ref(source_name, self.prev_span())
+        } else {
+            self.parse_type_spec()?
+        };
 
         // Optional initial value
         let initial_value = if self.check(&Token::Eq) {
@@ -269,6 +307,9 @@ impl Parser {
             is_constant,
             is_parallel,
             initial_value,
+            like_source,
+            overlay_target,
+            pos_target,
             span: start_span.merge(self.prev_span()),
         })
     }
@@ -368,6 +409,9 @@ impl Parser {
                     is_constant: false,
                     is_parallel: false,
                     initial_value: None,
+                    like_source: None,
+                    overlay_target: None,
+                    pos_target: None,
                     span: param_span,
                 };
 
@@ -621,10 +665,23 @@ impl Parser {
             None
         };
 
+        // Scale factor for fixed-point (A type with D n)
+        let scale = if base == BaseType::Fixed && self.check_keyword(Keyword::D) {
+            self.advance();
+            if let Some(Token::Integer(n)) = self.current_token().cloned() {
+                self.advance();
+                Some(n as i32)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Ok(TypeSpec {
             base,
             size,
-            scale: None,
+            scale,
             status_values: Vec::new(),
             element_type: None,
             referenced_type: None,
@@ -1352,5 +1409,76 @@ TERM
 "#;
         let program = parse(source).unwrap();
         assert_eq!(program.declarations.len(), 1);
+    }
+
+    #[test]
+    fn test_fixed_point_with_scale() {
+        let source = r#"
+START TEST;
+ITEM RATE A 16 D 4;
+TERM
+"#;
+        let program = parse(source).unwrap();
+        assert_eq!(program.declarations.len(), 1);
+        if let Declaration::Item { type_spec, .. } = &program.declarations[0] {
+            assert_eq!(type_spec.base, BaseType::Fixed);
+            assert_eq!(type_spec.size, Some(16));
+            assert_eq!(type_spec.scale, Some(4));
+        } else {
+            panic!("Expected Item declaration");
+        }
+    }
+
+    #[test]
+    fn test_like_modifier() {
+        let source = r#"
+START TEST;
+ITEM ORIGINAL S 32;
+ITEM COPY LIKE ORIGINAL;
+TERM
+"#;
+        let program = parse(source).unwrap();
+        assert_eq!(program.declarations.len(), 2);
+        if let Declaration::Item { like_source, .. } = &program.declarations[1] {
+            assert_eq!(like_source.as_ref().unwrap(), "ORIGINAL");
+        } else {
+            panic!("Expected Item declaration with LIKE");
+        }
+    }
+
+    #[test]
+    fn test_overlay_modifier() {
+        let source = r#"
+START TEST;
+ITEM BASE S 32;
+ITEM ALIAS OVERLAY BASE S 32;
+TERM
+"#;
+        let program = parse(source).unwrap();
+        assert_eq!(program.declarations.len(), 2);
+        if let Declaration::Item { overlay_target, .. } = &program.declarations[1] {
+            assert_eq!(overlay_target.as_ref().unwrap(), "BASE");
+        } else {
+            panic!("Expected Item declaration with OVERLAY");
+        }
+    }
+
+    #[test]
+    fn test_pos_modifier() {
+        let source = r#"
+START TEST;
+ITEM BASE S 32;
+ITEM FIELD POS(BASE, 8) S 16;
+TERM
+"#;
+        let program = parse(source).unwrap();
+        assert_eq!(program.declarations.len(), 2);
+        if let Declaration::Item { pos_target, .. } = &program.declarations[1] {
+            let (target, offset) = pos_target.as_ref().unwrap();
+            assert_eq!(target, "BASE");
+            assert_eq!(*offset, 8);
+        } else {
+            panic!("Expected Item declaration with POS");
+        }
     }
 }

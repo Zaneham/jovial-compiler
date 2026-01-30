@@ -332,6 +332,9 @@ pub enum Declaration {
         is_constant: bool,
         is_parallel: bool,
         initial_value: Option<Expr>,
+        like_source: Option<String>,      // For LIKE modifier - copies type from another item
+        overlay_target: Option<String>,   // For OVERLAY - shares memory with target
+        pos_target: Option<(String, u32)>, // For POS - (target, bit_offset) into target
         span: Span,
     },
 
