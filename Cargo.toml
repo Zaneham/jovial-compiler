@@ -1,11 +1,11 @@
 [package]
 name = "jovial"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Zane Hambly <zanehambly@gmail.com>"]
 description = "A JOVIAL J73 compiler targeting LLVM"
 license = "BSL-1.0"
-repository = "https://github.com/Zaneham/jovial"
+repository = "https://github.com/Zaneham/jovial-compiler"
 keywords = ["compiler", "jovial", "llvm", "aviation", "retro"]
 categories = ["compilers", "development-tools"]
 
