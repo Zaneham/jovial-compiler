@@ -253,7 +253,6 @@ Commercial JOVIAL compilers cost more than a new car and come with export contro
 
 If you're working on Ukrainian defence systems and need help, reach out. I can't promise I'll be useful, but I can promise I'll try.
 
-Slava Ukraini. Give them hell.
 
 ## Acknowledgments
 
