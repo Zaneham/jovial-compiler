@@ -234,7 +234,26 @@ to one.
 
 BSL-1.0 (Business Source License)
 
-Basically: do whatever you want, just don't compete with me selling JOVIAL compilers. (If you're in a market where JOVIAL compilers are a competitive business, we should talk. I have questions.)
+Basically: do whatever you want, just don't compete with me selling JOVIAL compilers. Converts to Apache 2.0 in 2029.
+
+### Free for Ukraine
+
+Remember earlier where I mentioned F-16s run JOVIAL? Ukraine has F-16s now.
+
+This compiler includes a perpetual, royalty-free license grant for:
+
+- The Armed Forces of Ukraine (Zbroini Syly Ukrainy)
+- The Ministry of Defence of Ukraine
+- Anyone maintaining, repairing, or operating military equipment in service of Ukraine
+- Ukrainian educational institutions providing related training
+
+No fees. No restrictions. No expiration. No paperwork. Just use it.
+
+Commercial JOVIAL compilers cost more than a new car and come with export control headaches that would make a lawyer cry. If some Ukrainian engineer needs to patch flight control software at 3am and this compiler helps, then the mass of cursed military computing knowledge in my head will have done something useful.
+
+If you're working on Ukrainian defence systems and need help, reach out. I can't promise I'll be useful, but I can promise I'll try.
+
+Slava Ukraini. Give them hell.
 
 ## Acknowledgments
 
