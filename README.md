@@ -247,8 +247,6 @@ This compiler includes a perpetual, royalty-free license grant for:
 - Anyone maintaining, repairing, or operating military equipment in service of Ukraine
 - Ukrainian educational institutions providing related training
 
-No fees. No restrictions. No expiration. No paperwork. Just use it.
-
 Commercial JOVIAL compilers cost more than a new car and come with export control headaches that would make a lawyer cry. If some Ukrainian engineer needs to patch flight control software at 3am and this compiler helps, then the mass of cursed military computing knowledge in my head will have done something useful.
 
 If you're working on Ukrainian defence systems and need help, reach out. I can't promise I'll be useful, but I can promise I'll try.
