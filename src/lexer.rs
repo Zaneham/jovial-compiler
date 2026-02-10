@@ -115,6 +115,9 @@ pub enum Token {
 
     #[token("\n")]
     Newline,
+
+    /// Lexer error token (unknown character)
+    Error(String),
 }
 
 /// Parse a based integer (2B1010, 8O777, 16HFF)
@@ -352,8 +355,11 @@ pub fn tokenize(source: &str) -> Vec<SpannedToken> {
                 });
             }
             Err(_) => {
-                // Skip unknown tokens for now
-                // In production, we'd report an error
+                let text = &source[span.clone()];
+                tokens.push(SpannedToken {
+                    token: Token::Error(text.to_string()),
+                    span: span.into(),
+                });
             }
         }
     }

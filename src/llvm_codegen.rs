@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
@@ -42,6 +43,18 @@ pub struct LLVMCodeGenerator<'ctx> {
 
     /// Item type specs (for LIKE resolution)
     item_types: HashMap<String, TypeSpec>,
+
+    /// EXIT target stack (pushed by loops, popped on exit)
+    loop_exit_stack: Vec<BasicBlock<'ctx>>,
+
+    /// GOTO/Label blocks (lazily created)
+    label_blocks: HashMap<String, BasicBlock<'ctx>>,
+
+    /// Status value name -> ordinal mapping
+    status_values: HashMap<String, i64>,
+
+    /// Table name -> field layout (field name, field LLVM type)
+    table_fields: HashMap<String, Vec<(String, BasicTypeEnum<'ctx>)>>,
 }
 
 impl<'ctx> LLVMCodeGenerator<'ctx> {
@@ -60,6 +73,10 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
             defines: HashMap::new(),
             type_aliases: HashMap::new(),
             item_types: HashMap::new(),
+            loop_exit_stack: Vec::new(),
+            label_blocks: HashMap::new(),
+            status_values: HashMap::new(),
+            table_fields: HashMap::new(),
         }
     }
 
@@ -296,6 +313,13 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                 self.type_aliases.insert(name.to_uppercase(), type_spec.clone());
             }
             Declaration::Item { name, type_spec, like_source, .. } => {
+                // Register status values if this is a STATUS type
+                if type_spec.base == BaseType::Status && !type_spec.status_values.is_empty() {
+                    for (i, sv) in type_spec.status_values.iter().enumerate() {
+                        self.status_values.insert(sv.to_uppercase(), i as i64);
+                    }
+                }
+
                 // Resolve LIKE reference if present
                 let resolved_type = if let Some(source_name) = like_source {
                     // Look up the source item's type
@@ -399,9 +423,7 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                         // Create a global alias at the offset
                         // For simplicity, we'll use GEP to get a pointer at the byte offset
                         // This works for aligned access; sub-byte offsets require bit manipulation
-                        let i8_type = self.context.i8_type();
-
-                        // We need to handle this at runtime or as a constant offset
+                                        // We need to handle this at runtime or as a constant offset
                         // For now, create a global that represents the offset pointer
                         // This is a simplified implementation - full POS would need bit-level access
                         let global = self.module.add_global(llvm_type, None, &global_name);
@@ -477,6 +499,8 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
 
                 self.current_function = Some(function);
                 self.current_output_params.clear();
+                self.loop_exit_stack.clear();
+                self.label_blocks.clear();
 
                 // Create entry block
                 let entry = self.context.append_basic_block(function, "entry");
@@ -602,6 +626,15 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                         name.to_uppercase(),
                         (global.as_pointer_value(), struct_type.into()),
                     );
+
+                    // Record field layout for member access
+                    let mut fields_info: Vec<(String, BasicTypeEnum<'ctx>)> = Vec::new();
+                    for (i, entry) in entries.iter().enumerate() {
+                        if let Declaration::Item { name: field_name, .. } = entry {
+                            fields_info.push((field_name.to_uppercase(), field_types[i]));
+                        }
+                    }
+                    self.table_fields.insert(name.to_uppercase(), fields_info);
                 }
             }
 
@@ -621,6 +654,8 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
         let main_fn = self.module.add_function("main", fn_type, None);
 
         self.current_function = Some(main_fn);
+        self.loop_exit_stack.clear();
+        self.label_blocks.clear();
 
         let entry = self.context.append_basic_block(main_fn, "entry");
         self.builder.position_at_end(entry);
@@ -764,9 +799,11 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
 
                 // Body block
                 self.builder.position_at_end(body_bb);
+                self.loop_exit_stack.push(end_bb);
                 for s in body {
                     self.generate_statement(s)?;
                 }
+                self.loop_exit_stack.pop();
                 if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
                     self.builder.build_unconditional_branch(cond_bb)
                         .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
@@ -797,8 +834,222 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                 // No-op
             }
 
-            _ => {
-                // TODO: Handle other statement types (Case, For, Goto, etc.)
+            Statement::Abort { .. } => {
+                let void_type = self.context.void_type();
+                let abort_ty = void_type.fn_type(&[], false);
+                let abort_fn = self.module.get_function("abort").unwrap_or_else(|| {
+                    self.module.add_function("abort", abort_ty, None)
+                });
+                self.builder.build_call(abort_fn, &[], "")
+                    .map_err(|e| CompileError::codegen(format!("Failed to call abort: {}", e)))?;
+                self.builder.build_unreachable()
+                    .map_err(|e| CompileError::codegen(format!("Failed to build unreachable: {}", e)))?;
+            }
+
+            Statement::Stop { .. } => {
+                let void_type = self.context.void_type();
+                let i32_type = self.context.i32_type();
+                let exit_ty = void_type.fn_type(&[i32_type.into()], false);
+                let exit_fn = self.module.get_function("exit").unwrap_or_else(|| {
+                    self.module.add_function("exit", exit_ty, None)
+                });
+                let zero = i32_type.const_int(0, false);
+                self.builder.build_call(exit_fn, &[zero.into()], "")
+                    .map_err(|e| CompileError::codegen(format!("Failed to call exit: {}", e)))?;
+                self.builder.build_unreachable()
+                    .map_err(|e| CompileError::codegen(format!("Failed to build unreachable: {}", e)))?;
+            }
+
+            Statement::Exit { .. } => {
+                let exit_bb = self.loop_exit_stack.last()
+                    .ok_or_else(|| CompileError::codegen("EXIT statement outside of loop"))?;
+                self.builder.build_unconditional_branch(*exit_bb)
+                    .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+            }
+
+            Statement::For { variable, start, end, step, body, .. } => {
+                let function = self.current_function
+                    .ok_or_else(|| CompileError::codegen("For outside function"))?;
+
+                let (var_ptr, var_ty) = if let Some((ptr, ty)) = self.variables.get(&variable.to_uppercase()) {
+                    (*ptr, *ty)
+                } else {
+                    let ty = self.context.i64_type();
+                    let alloca = self.builder.build_alloca(ty, &Self::translate_name(variable))
+                        .map_err(|e| CompileError::codegen(format!("Failed to build alloca: {}", e)))?;
+                    self.variables.insert(variable.to_uppercase(), (alloca, ty.into()));
+                    (alloca, ty.into())
+                };
+
+                let start_val = self.generate_expression(start)?
+                    .ok_or_else(|| CompileError::codegen("FOR start has no result"))?;
+                let start_casted = self.cast_value(start_val, var_ty)?;
+                self.builder.build_store(var_ptr, start_casted)
+                    .map_err(|e| CompileError::codegen(format!("Failed to store: {}", e)))?;
+
+                let cond_bb = self.context.append_basic_block(function, "for.cond");
+                let body_bb = self.context.append_basic_block(function, "for.body");
+                let incr_bb = self.context.append_basic_block(function, "for.incr");
+                let end_bb = self.context.append_basic_block(function, "for.end");
+
+                self.builder.build_unconditional_branch(cond_bb)
+                    .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+
+                // Condition: evaluate WHILE expression
+                self.builder.position_at_end(cond_bb);
+                let cond_val = self.generate_expression(end)?
+                    .ok_or_else(|| CompileError::codegen("FOR WHILE condition has no result"))?;
+                let cond_bool = if cond_val.is_int_value() {
+                    let int_val = cond_val.into_int_value();
+                    self.builder.build_int_compare(
+                        IntPredicate::NE, int_val, int_val.get_type().const_zero(), "forcond",
+                    ).map_err(|e| CompileError::codegen(format!("Failed to build compare: {}", e)))?
+                } else {
+                    cond_val.into_int_value()
+                };
+                self.builder.build_conditional_branch(cond_bool, body_bb, end_bb)
+                    .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+
+                // Body
+                self.builder.position_at_end(body_bb);
+                self.loop_exit_stack.push(end_bb);
+                for s in body {
+                    self.generate_statement(s)?;
+                }
+                self.loop_exit_stack.pop();
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(incr_bb)
+                        .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+                }
+
+                // Increment
+                self.builder.position_at_end(incr_bb);
+                let cur_val = self.builder.build_load(var_ty, var_ptr, "for.cur")
+                    .map_err(|e| CompileError::codegen(format!("Failed to load: {}", e)))?;
+                let step_val = if let Some(step_expr) = step {
+                    self.generate_expression(step_expr)?
+                        .ok_or_else(|| CompileError::codegen("FOR step has no result"))?
+                } else {
+                    match var_ty {
+                        BasicTypeEnum::IntType(t) => t.const_int(1, false).into(),
+                        BasicTypeEnum::FloatType(t) => t.const_float(1.0).into(),
+                        _ => return Err(CompileError::codegen("Unsupported FOR variable type")),
+                    }
+                };
+                let step_casted = self.cast_value(step_val, var_ty)?;
+                let next_val: BasicValueEnum<'ctx> = if cur_val.is_int_value() {
+                    self.builder.build_int_add(cur_val.into_int_value(), step_casted.into_int_value(), "for.next")
+                        .map_err(|e| CompileError::codegen(format!("Failed to build add: {}", e)))?.into()
+                } else {
+                    self.builder.build_float_add(cur_val.into_float_value(), step_casted.into_float_value(), "for.next")
+                        .map_err(|e| CompileError::codegen(format!("Failed to build fadd: {}", e)))?.into()
+                };
+                self.builder.build_store(var_ptr, next_val)
+                    .map_err(|e| CompileError::codegen(format!("Failed to store: {}", e)))?;
+                self.builder.build_unconditional_branch(cond_bb)
+                    .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+
+                self.builder.position_at_end(end_bb);
+            }
+
+            Statement::Goto { label, .. } => {
+                let function = self.current_function
+                    .ok_or_else(|| CompileError::codegen("Goto outside function"))?;
+                let target_bb = self.get_or_create_label_block(&label.to_uppercase(), function);
+                self.builder.build_unconditional_branch(target_bb)
+                    .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+            }
+
+            Statement::Label { name, .. } => {
+                let function = self.current_function
+                    .ok_or_else(|| CompileError::codegen("Label outside function"))?;
+                let label_bb = self.get_or_create_label_block(&name.to_uppercase(), function);
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(label_bb)
+                        .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+                }
+                self.builder.position_at_end(label_bb);
+            }
+
+            Statement::Case { selector, branches, default, .. } => {
+                let function = self.current_function
+                    .ok_or_else(|| CompileError::codegen("Case outside function"))?;
+
+                let sel_val = self.generate_expression(selector)?
+                    .ok_or_else(|| CompileError::codegen("Case selector has no result"))?
+                    .into_int_value();
+
+                let merge_bb = self.context.append_basic_block(function, "case.merge");
+
+                let mut body_blocks: Vec<BasicBlock<'ctx>> = Vec::new();
+                for (i, _) in branches.iter().enumerate() {
+                    body_blocks.push(self.context.append_basic_block(function, &format!("case.body.{}", i)));
+                }
+                let default_bb = self.context.append_basic_block(function, "case.default");
+
+                let mut check_bb = self.context.append_basic_block(function, "case.check.0");
+                self.builder.build_unconditional_branch(check_bb)
+                    .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+
+                for (i, branch) in branches.iter().enumerate() {
+                    self.builder.position_at_end(check_bb);
+                    let next_check = if i + 1 < branches.len() {
+                        self.context.append_basic_block(function, &format!("case.check.{}", i + 1))
+                    } else {
+                        default_bb
+                    };
+
+                    if branch.values.is_empty() {
+                        self.builder.build_unconditional_branch(next_check)
+                            .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+                    } else {
+                        let mut combined: Option<inkwell::values::IntValue<'ctx>> = None;
+                        for val_expr in &branch.values {
+                            let case_val = self.generate_expression(val_expr)?
+                                .ok_or_else(|| CompileError::codegen("Case value has no result"))?
+                                .into_int_value();
+                            let case_cast = self.builder.build_int_cast(case_val, sel_val.get_type(), "case.cast")
+                                .map_err(|e| CompileError::codegen(format!("Failed to cast: {}", e)))?;
+                            let cmp = self.builder.build_int_compare(IntPredicate::EQ, sel_val, case_cast, "case.cmp")
+                                .map_err(|e| CompileError::codegen(format!("Failed to compare: {}", e)))?;
+                            combined = Some(match combined {
+                                Some(prev) => self.builder.build_or(prev, cmp, "case.or")
+                                    .map_err(|e| CompileError::codegen(format!("Failed to build or: {}", e)))?,
+                                None => cmp,
+                            });
+                        }
+                        self.builder.build_conditional_branch(combined.unwrap(), body_blocks[i], next_check)
+                            .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+                    }
+                    check_bb = next_check;
+                }
+
+                for (i, branch) in branches.iter().enumerate() {
+                    self.builder.position_at_end(body_blocks[i]);
+                    for s in &branch.body {
+                        self.generate_statement(s)?;
+                    }
+                    if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                        if branch.fallthru && i + 1 < body_blocks.len() {
+                            self.builder.build_unconditional_branch(body_blocks[i + 1])
+                                .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+                        } else {
+                            self.builder.build_unconditional_branch(merge_bb)
+                                .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+                        }
+                    }
+                }
+
+                self.builder.position_at_end(default_bb);
+                for s in default {
+                    self.generate_statement(s)?;
+                }
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(merge_bb)
+                        .map_err(|e| CompileError::codegen(format!("Failed to build branch: {}", e)))?;
+                }
+
+                self.builder.position_at_end(merge_bb);
             }
         }
 
@@ -845,10 +1096,13 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
             }
 
             Expr::Status { value, .. } => {
-                // Status values are just integers (enum values)
-                // For now, hash the name to get a unique value
-                let hash = value.to_uppercase().bytes().fold(0i64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as i64));
-                let val = self.context.i32_type().const_int(hash as u64, false);
+                // Look up ordinal from declared status values; fall back to hash
+                let ordinal = if let Some(&ord) = self.status_values.get(&value.to_uppercase()) {
+                    ord
+                } else {
+                    value.to_uppercase().bytes().fold(0i64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as i64))
+                };
+                let val = self.context.i32_type().const_int(ordinal as u64, false);
                 Ok(Some(val.into()))
             }
 
@@ -905,6 +1159,13 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                         BinaryOp::And => self.builder.build_and(l, r, "and"),
                         BinaryOp::Or => self.builder.build_or(l, r, "or"),
                         BinaryOp::Xor => self.builder.build_xor(l, r, "xor"),
+                        BinaryOp::Eqv => {
+                            let xor_val = self.builder.build_xor(l, r, "eqv.xor")
+                                .map_err(|e| CompileError::codegen(format!("Failed: {}", e)))?;
+                            let result = self.builder.build_not(xor_val, "eqv")
+                                .map_err(|e| CompileError::codegen(format!("Failed: {}", e)))?;
+                            return Ok(Some(result.into()));
+                        }
                         BinaryOp::Power => {
                             // Convert to f64, call pow, convert back
                             let lf = self.builder.build_signed_int_to_float(l, self.context.f64_type(), "ltof")
@@ -919,7 +1180,6 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                                 .ok_or_else(|| CompileError::codegen("POW returned void"))?;
                             return Ok(Some(result));
                         }
-                        _ => return Err(CompileError::codegen("Unsupported binary op")),
                     }.map_err(|e| CompileError::codegen(format!("Failed to build op: {}", e)))?
                      .into()
                 } else if lhs.is_float_value() || rhs.is_float_value() {
@@ -948,6 +1208,17 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                         BinaryOp::Sub => self.builder.build_float_sub(l, r, "fsub"),
                         BinaryOp::Mul => self.builder.build_float_mul(l, r, "fmul"),
                         BinaryOp::Div => self.builder.build_float_div(l, r, "fdiv"),
+                        BinaryOp::Mod => self.builder.build_float_rem(l, r, "fmod"),
+                        BinaryOp::Eq => {
+                            let cmp = self.builder.build_float_compare(FloatPredicate::OEQ, l, r, "feq")
+                                .map_err(|e| CompileError::codegen(format!("Failed: {}", e)))?;
+                            return Ok(Some(cmp.into()));
+                        }
+                        BinaryOp::Ne => {
+                            let cmp = self.builder.build_float_compare(FloatPredicate::ONE, l, r, "fne")
+                                .map_err(|e| CompileError::codegen(format!("Failed: {}", e)))?;
+                            return Ok(Some(cmp.into()));
+                        }
                         BinaryOp::Lt => {
                             let cmp = self.builder.build_float_compare(FloatPredicate::OLT, l, r, "flt")
                                 .map_err(|e| CompileError::codegen(format!("Failed: {}", e)))?;
@@ -1141,7 +1412,78 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                 Ok(call.try_as_basic_value().left())
             }
 
-            _ => Ok(None),
+            Expr::String { value, .. } => {
+                let str_val = self.context.const_string(value.as_bytes(), true);
+                let str_global = self.module.add_global(str_val.get_type(), None, ".str");
+                str_global.set_initializer(&str_val);
+                str_global.set_constant(true);
+                Ok(Some(str_global.as_pointer_value().into()))
+            }
+
+            Expr::Index { base, indices, .. } => {
+                if let Expr::Ident { name, .. } = base.as_ref() {
+                    if let Some((table_ptr, elem_ty)) = self.variables.get(&name.to_uppercase()).cloned() {
+                        if let Some(first_idx) = indices.first() {
+                            let idx_val = self.generate_expression(first_idx)?
+                                .ok_or_else(|| CompileError::codegen("Index has no result"))?
+                                .into_int_value();
+                            let one = idx_val.get_type().const_int(1, false);
+                            let zero_idx = self.builder.build_int_sub(idx_val, one, "idx0")
+                                .map_err(|e| CompileError::codegen(format!("Failed to sub: {}", e)))?;
+                            let elem_ptr = unsafe {
+                                self.builder.build_in_bounds_gep(
+                                    elem_ty, table_ptr, &[zero_idx], "table.elem",
+                                ).map_err(|e| CompileError::codegen(format!("Failed GEP: {}", e)))?
+                            };
+                            let val = self.builder.build_load(elem_ty, elem_ptr, "table.load")
+                                .map_err(|e| CompileError::codegen(format!("Failed to load: {}", e)))?;
+                            return Ok(Some(val));
+                        }
+                    }
+                }
+                Err(CompileError::codegen("Unsupported index expression"))
+            }
+
+            Expr::Member { base, member, .. } => {
+                let (base_ptr, base_struct_ty) = self.get_member_base_ptr(base)?;
+                let struct_ty = match base_struct_ty {
+                    BasicTypeEnum::StructType(st) => st,
+                    _ => return Err(CompileError::codegen("Member access on non-struct type")),
+                };
+                let type_name = self.get_expr_type_name(base);
+                let field_idx = if let Some(ref tn) = type_name {
+                    if let Some(fields) = self.table_fields.get(tn) {
+                        fields.iter().position(|(n, _)| n == &member.to_uppercase())
+                            .ok_or_else(|| CompileError::codegen(format!("Unknown field: {}", member)))?
+                    } else {
+                        return Err(CompileError::codegen(format!("No field info for table: {}", tn)));
+                    }
+                } else {
+                    return Err(CompileError::codegen("Cannot resolve type for member access"));
+                };
+                let field_ptr = self.builder.build_struct_gep(struct_ty, base_ptr, field_idx as u32, "field.ptr")
+                    .map_err(|e| CompileError::codegen(format!("Failed struct GEP: {}", e)))?;
+                let field_ty = struct_ty.get_field_type_at_index(field_idx as u32)
+                    .ok_or_else(|| CompileError::codegen("Invalid field index"))?;
+                let val = self.builder.build_load(field_ty, field_ptr, "field.load")
+                    .map_err(|e| CompileError::codegen(format!("Failed to load field: {}", e)))?;
+                Ok(Some(val))
+            }
+
+            Expr::Deref { operand, .. } => {
+                let ptr_val = self.generate_expression(operand)?
+                    .ok_or_else(|| CompileError::codegen("Deref operand has no result"))?
+                    .into_pointer_value();
+                let pointee_ty = self.context.i64_type();
+                let val = self.builder.build_load(pointee_ty, ptr_val, "deref")
+                    .map_err(|e| CompileError::codegen(format!("Failed to load deref: {}", e)))?;
+                Ok(Some(val))
+            }
+
+            Expr::AddrOf { operand, .. } => {
+                let ptr = self.generate_lvalue(operand)?;
+                Ok(Some(ptr.into()))
+            }
         }
     }
 
@@ -1266,6 +1608,51 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                     Err(CompileError::codegen(format!("Undefined variable: {}", name)))
                 }
             }
+            Expr::Index { base, indices, .. } => {
+                if let Expr::Ident { name, .. } = base.as_ref() {
+                    if let Some((table_ptr, elem_ty)) = self.variables.get(&name.to_uppercase()).cloned() {
+                        if let Some(first_idx) = indices.first() {
+                            let idx_val = self.generate_expression(first_idx)?
+                                .ok_or_else(|| CompileError::codegen("Index has no result"))?.into_int_value();
+                            let one = idx_val.get_type().const_int(1, false);
+                            let zero_idx = self.builder.build_int_sub(idx_val, one, "lv.idx0")
+                                .map_err(|e| CompileError::codegen(format!("Failed to sub: {}", e)))?;
+                            let elem_ptr = unsafe {
+                                self.builder.build_in_bounds_gep(elem_ty, table_ptr, &[zero_idx], "lv.table.elem")
+                                    .map_err(|e| CompileError::codegen(format!("Failed GEP: {}", e)))?
+                            };
+                            return Ok(elem_ptr);
+                        }
+                    }
+                }
+                Err(CompileError::codegen("Invalid index l-value"))
+            }
+            Expr::Member { base, member, .. } => {
+                let (base_ptr, base_struct_ty) = self.get_member_base_ptr(base)?;
+                let struct_ty = match base_struct_ty {
+                    BasicTypeEnum::StructType(st) => st,
+                    _ => return Err(CompileError::codegen("Member lvalue on non-struct")),
+                };
+                let type_name = self.get_expr_type_name(base);
+                let field_idx = if let Some(ref tn) = type_name {
+                    if let Some(fields) = self.table_fields.get(tn) {
+                        fields.iter().position(|(n, _)| n == &member.to_uppercase())
+                            .ok_or_else(|| CompileError::codegen(format!("Unknown field: {}", member)))?
+                    } else {
+                        return Err(CompileError::codegen(format!("No field info for: {}", tn)));
+                    }
+                } else {
+                    return Err(CompileError::codegen("Cannot resolve type for member lvalue"));
+                };
+                let field_ptr = self.builder.build_struct_gep(struct_ty, base_ptr, field_idx as u32, "lv.field")
+                    .map_err(|e| CompileError::codegen(format!("Failed struct GEP: {}", e)))?;
+                Ok(field_ptr)
+            }
+            Expr::Deref { operand, .. } => {
+                let ptr = self.generate_expression(operand)?
+                    .ok_or_else(|| CompileError::codegen("Deref operand has no result"))?.into_pointer_value();
+                Ok(ptr)
+            }
             _ => Err(CompileError::codegen("Invalid l-value")),
         }
     }
@@ -1278,6 +1665,53 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
                 } else {
                     Err(CompileError::codegen(format!("Undefined variable: {}", name)))
                 }
+            }
+            Expr::Index { base, indices, .. } => {
+                if let Expr::Ident { name, .. } = base.as_ref() {
+                    if let Some((table_ptr, elem_ty)) = self.variables.get(&name.to_uppercase()).cloned() {
+                        if let Some(first_idx) = indices.first() {
+                            let idx_val = self.generate_expression(first_idx)?
+                                .ok_or_else(|| CompileError::codegen("Index has no result"))?.into_int_value();
+                            let one = idx_val.get_type().const_int(1, false);
+                            let zero_idx = self.builder.build_int_sub(idx_val, one, "lv.idx0")
+                                .map_err(|e| CompileError::codegen(format!("Failed to sub: {}", e)))?;
+                            let elem_ptr = unsafe {
+                                self.builder.build_in_bounds_gep(elem_ty, table_ptr, &[zero_idx], "lv.table.elem")
+                                    .map_err(|e| CompileError::codegen(format!("Failed GEP: {}", e)))?
+                            };
+                            return Ok((elem_ptr, elem_ty));
+                        }
+                    }
+                }
+                Err(CompileError::codegen("Invalid index l-value"))
+            }
+            Expr::Member { base, member, .. } => {
+                let (base_ptr, base_struct_ty) = self.get_member_base_ptr(base)?;
+                let struct_ty = match base_struct_ty {
+                    BasicTypeEnum::StructType(st) => st,
+                    _ => return Err(CompileError::codegen("Member lvalue on non-struct")),
+                };
+                let type_name = self.get_expr_type_name(base);
+                let field_idx = if let Some(ref tn) = type_name {
+                    if let Some(fields) = self.table_fields.get(tn) {
+                        fields.iter().position(|(n, _)| n == &member.to_uppercase())
+                            .ok_or_else(|| CompileError::codegen(format!("Unknown field: {}", member)))?
+                    } else {
+                        return Err(CompileError::codegen(format!("No field info for: {}", tn)));
+                    }
+                } else {
+                    return Err(CompileError::codegen("Cannot resolve type for member lvalue"));
+                };
+                let field_ptr = self.builder.build_struct_gep(struct_ty, base_ptr, field_idx as u32, "lv.field")
+                    .map_err(|e| CompileError::codegen(format!("Failed struct GEP: {}", e)))?;
+                let field_ty = struct_ty.get_field_type_at_index(field_idx as u32)
+                    .ok_or_else(|| CompileError::codegen("Invalid field index"))?;
+                Ok((field_ptr, field_ty))
+            }
+            Expr::Deref { operand, .. } => {
+                let ptr = self.generate_expression(operand)?
+                    .ok_or_else(|| CompileError::codegen("Deref operand has no result"))?.into_pointer_value();
+                Ok((ptr, self.context.i64_type().into()))
             }
             _ => Err(CompileError::codegen("Invalid l-value")),
         }
@@ -1351,6 +1785,62 @@ impl<'ctx> LLVMCodeGenerator<'ctx> {
     // =========================================================================
     // Utilities
     // =========================================================================
+
+    fn get_or_create_label_block(&mut self, label: &str, function: FunctionValue<'ctx>) -> BasicBlock<'ctx> {
+        if let Some(&bb) = self.label_blocks.get(label) {
+            bb
+        } else {
+            let bb = self.context.append_basic_block(function, &format!("label.{}", label.to_lowercase()));
+            self.label_blocks.insert(label.to_string(), bb);
+            bb
+        }
+    }
+
+    fn get_member_base_ptr(&mut self, base: &Expr) -> Result<(PointerValue<'ctx>, BasicTypeEnum<'ctx>)> {
+        match base {
+            Expr::Index { base: table_expr, indices, .. } => {
+                if let Expr::Ident { name, .. } = table_expr.as_ref() {
+                    if let Some((table_ptr, elem_ty)) = self.variables.get(&name.to_uppercase()).cloned() {
+                        if let Some(first_idx) = indices.first() {
+                            let idx_val = self.generate_expression(first_idx)?
+                                .ok_or_else(|| CompileError::codegen("Index has no result"))?.into_int_value();
+                            let one = idx_val.get_type().const_int(1, false);
+                            let zero_idx = self.builder.build_int_sub(idx_val, one, "mem.idx0")
+                                .map_err(|e| CompileError::codegen(format!("Failed to sub: {}", e)))?;
+                            let elem_ptr = unsafe {
+                                self.builder.build_in_bounds_gep(elem_ty, table_ptr, &[zero_idx], "mem.table.elem")
+                                    .map_err(|e| CompileError::codegen(format!("Failed GEP: {}", e)))?
+                            };
+                            return Ok((elem_ptr, elem_ty));
+                        }
+                    }
+                }
+                Err(CompileError::codegen("Invalid member base (index)"))
+            }
+            Expr::Ident { name, .. } => {
+                if let Some((ptr, ty)) = self.variables.get(&name.to_uppercase()).cloned() {
+                    Ok((ptr, ty))
+                } else {
+                    Err(CompileError::codegen(format!("Undefined variable for member access: {}", name)))
+                }
+            }
+            _ => Err(CompileError::codegen("Unsupported member base expression")),
+        }
+    }
+
+    fn get_expr_type_name(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Index { base, .. } => {
+                if let Expr::Ident { name, .. } = base.as_ref() {
+                    Some(name.to_uppercase())
+                } else {
+                    None
+                }
+            }
+            Expr::Ident { name, .. } => Some(name.to_uppercase()),
+            _ => None,
+        }
+    }
 
     fn translate_name(name: &str) -> String {
         name.replace('\'', "_").to_lowercase()
