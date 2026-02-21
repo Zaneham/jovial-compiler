@@ -260,8 +260,4 @@ If you're working on Ukrainian defence systems and need help, reach out. I can't
 - The youtuber Low Level for his course on Rust which helped me learn the language a bit. You can check out his youtube here: https://www.youtube.com/@LowLevelTV
 - You, for reading this far. You're my kind of weird.
 
----
 
-*Built with love, confusion, and far too much coffee in Aotearoa New Zealand.*
-
-*"She'll be right, mate." - Every engineer who ever deployed JOVIAL code to a fighter jet, probably*
