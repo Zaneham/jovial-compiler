@@ -2,6 +2,11 @@
 
 A fully functional native compiler for JOVIAL J73 (MIL-STD-1589C), a programming language from 1959 designed for bombing things more accurately. Now you too can experience the joy of military avionics software development from your gaming PC.
 
+## Please note: 
+I wrote this whilst learning Rust (mistake) and kind of applied a tutorial which heavily featured LLVM. Hence this compiler. I'm currently looking at doing a rewrite in C, also JOVIAL is still featured in embedded software. Running LLVM which is a heck of a dependency is not a good idea in the embedded space. 
+
+So please watch out for the rewrite (I've also done a version of this in OCaml but thats neither here nor there)
+
 ## What is JOVIAL?
 
 JOVIAL (Jules' Own Version of the International Algebraic Language) was created in 1959 because apparently FORTRAN wasn't violent enough. It was used extensively in:
